@@ -1,0 +1,13 @@
+
+<VirtualHost localhost:80>
+    ServerAdmin webmaster@domainname1.dom
+    DocumentRoot "/nomansland/MAIN_REPOS/hsap-pipeline-web-ui/"
+    ServerName hsap.dom
+    ServerAlias hsap.dom
+    ErrorLog "/var/log/httpd/domainname1.dom-error_log"
+    CustomLog "/var/log/httpd/domainname1.dom-access_log" common
+
+    <Directory "/nomansland/MAIN_REPOS/hsap-pipeline-web-ui/" >
+        Require all granted
+    </Directory>
+</VirtualHost>

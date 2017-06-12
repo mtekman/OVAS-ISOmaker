@@ -1,0 +1,2 @@
+./customiso/EFI/archiso/efiboot.img filter=lfs diff=lfs merge=lfs -text
+./customiso/arch/x86_64/archiso.img filter=lfs diff=lfs merge=lfs -text
