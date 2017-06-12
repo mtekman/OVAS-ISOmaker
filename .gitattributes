@@ -1,2 +1,4 @@
 ./customiso/EFI/archiso/efiboot.img filter=lfs diff=lfs merge=lfs -text
 ./customiso/arch/x86_64/archiso.img filter=lfs diff=lfs merge=lfs -text
+./archlinux-2017.06.01-x86_64.iso
+archlinux-2017.06.01-x86_64.iso filter=lfs diff=lfs merge=lfs -text
