@@ -2,9 +2,12 @@
 #
 customiso=./customiso2/
 chroot=$customiso/arch/x86_64/squashfs-root/
-vanilla_iso=./archlinux-2017.06.01-x86_64.iso
+vanilla_iso=./arch*.iso
 
 chroot_cmd="sudo arch-chroot $chroot"
+
+iso_label=201706  # don't change this
+
 
 function download_if_empty {
 
@@ -91,9 +94,12 @@ function updateSquash {
 function copy_static_files {
     echo ""
     echo "[Updating Static Files]"
+    exit 0 # TODO: fix links so that hsap pipeline files are resolved, but not FASTA within it
+	# maybe by specificing that the resolve_links.cmd only works 1 directory deep.
     static_dir=static_confs/
 
-    sudo cp -vunpr $static_dir/* $chroot
+    sudo rsync -av $static_dir/* $chroot
+    
 
     #resolve_links.cmd
     echo "[Resolving symlinks for stated directories]"
@@ -103,9 +109,10 @@ function copy_static_files {
         echo " - Cleaning $nodd of symlinks"
         sudo find $nodd/ -type l -exec rm {} \;
 
-        echo " - Copying over real files"       
+        echo " - Copying over real files"
         sudo cp -vunprL $dir $nodd
-    done
+
+    done 2>&1
 }
 
 function set_starts {
@@ -140,8 +147,7 @@ function set_permissions {
 
     echo " - Setting default shells"
     $chroot_cmd chsh -s /bin/bash http
-    $chroot_cmd chsh -s /bin/bash root
-    
+    $chroot_cmd chsh -s /bin/bash root    
 }
 
 function install_packages {
@@ -153,25 +159,53 @@ function install_packages {
 
 
 function install_boot_opts {
-    echo "[ TODO ]"
-    echo "Installing splash and opts"
 
+    syslx_root=$customiso/arch/boot/syslinux
+    
+    echo "[Configuring Bootloader]"
+    echo " - Setting splash"
     convert assets/splash.xcf -flatten /tmp/splash.png
+    sudo cp -v /tmp/splash.png $syslx_root/
+    
+    echo " - Setting menu text"
+    sudo sed -i 's/MENU TITLE .*/MENU TITLE Welcome to the OVAS pipeline/' $syslx_root/archiso_head.cfg
+    sudo sh -c "echo \"\
+INCLUDE boot/syslinux/archiso_head.cfg
+
+LABEL arch64
+TEXT HELP
+Boots the OVAS live medium.
+Provides a self-contained environment to perform variant analysis.
+ENDTEXT
+MENU LABEL Run OVAS
+LINUX boot/x86_64/vmlinuz
+INITRD boot/intel_ucode.img,boot/x86_64/archiso.img
+APPEND archisobasedir=arch archisolabel=ARCH_${iso_label}
+
+INCLUDE boot/syslinux/archiso_tail.cfg\" > $syslx_root/archiso_sys.cfg"
+   
 }
+
 
 function createISO {
-    iso_label=201706  # don't change this
-
-    sudo xorriso -as mkisofs -iso-level 3 -full-iso9660-filenames -volid "${iso_label}"  -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -isohybrid-mbr ./isolinux/isohdpfx.bin -output arch-custom.iso $customiso
+    mkdir out
+    output_iso=out/"ovas-`date +%Y%m%d`"
+    
+    sudo xorriso\
+	 -as mkisofs -iso-level 3 -full-iso9660-filenames -volid "${iso_label}"\
+	 -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat\
+	 -no-emul-boot -boot-load-size 4 -boot-info-table -isohybrid-mbr\
+	 ./isolinux/isohdpfx.bin -output $output_iso $customiso
 }
+
 
 
 download_if_empty
-#init_mount_unpack
-#install_packages
-#copy_static_files
+init_mount_unpack
+install_packages
+copy_static_files
 set_permissions
-#set_starts
-#updateSquash
-
-
+set_starts
+install_boot_opts
+updateSquash
+createISO
