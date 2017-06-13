@@ -155,6 +155,8 @@ function install_packages {
 function install_boot_opts {
     echo "[ TODO ]"
     echo "Installing splash and opts"
+
+    convert assets/splash.xcf -flatten /tmp/splash.png
 }
 
 function createISO {
