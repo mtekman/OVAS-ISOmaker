@@ -1,0 +1,2 @@
+grml-zsh-config
+zsh

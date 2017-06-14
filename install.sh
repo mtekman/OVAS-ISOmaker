@@ -141,10 +141,10 @@ function copy_static_files {
 function set_starts {
     echo ""
     echo "[Setting systemctl starts]"
-    #$chroot_cmd systemctl enable sshd         # enable internally for debugging
+    $chroot_cmd systemctl enable sshd         # enable internally for debugging
     $chroot_cmd systemctl enable httpd
 
-    $chroot_cmd systemctl disable dhcpcd       # slow, enable on demand
+    $chroot_cmd systemctl enable  dhcpcd       # slow, enable on demand
     $chroot_cmd systemctl disable pacman-init  # not needed for one time use
     
 }
@@ -180,10 +180,18 @@ function set_permissions {
 function install_packages {
     pack_list_in=package_list_install.txt
     #pack_list_rm=package_list_remove.txt
-    sudo cp -v ./assets/$pack_list_in $chroot/$pack_list_in
     #sudo cp -v ./assets/$pack_list_rm $chroot/$pack_list_rm
+    sudo cp -v ./assets/$pack_list_in $chroot/$pack_list_in
+    #xf86="`pacman -Ssq xf86`"
+    #xorg="`pacman -Ssq xorg`"
+
+    #sudo sh -c "echo $xf86 $xorg >> $chroot/$pack_list_in"
 
     $chroot_cmd sh -c "cat $pack_list_in | pacman -S --needed --noconfirm -"
+
+    
+    $chroot_cmd sh -c 'pacman -S --needed --noconfirm `pacman -Ssq xf86`'
+    $chroot_cmd sh -c 'pacman -S --needed --noconfirm `pacman -Ssq xorg`'
     #$chroot_cmd sh -c "cat $pack_list_rm | pacman -R --noconfirm -"
 }
 
@@ -210,7 +218,7 @@ ENDTEXT
 MENU LABEL Run OVAS
 LINUX boot/x86_64/vmlinuz
 INITRD boot/intel_ucode.img,boot/x86_64/archiso.img
-APPEND archisobasedir=arch archisolabel=${iso_label}
+APPEND archisobasedir=arch archisolabel=${iso_label} cow_spacesize=10G
 
 LABEL poweroff
 MENU LABEL Power Off
@@ -291,4 +299,5 @@ function main {
 }
 
 
-main
+#main
+update
