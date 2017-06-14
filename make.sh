@@ -1,6 +1,10 @@
 #!/bin/bash
 #
 
+command=$1
+[ "$command" = "" ] && echo -e "\n\t`basename $0` (install|update)\n" && exit -1
+
+
 trap "kill 0" SIGINT  # kill all subprocesses
 
 customiso=./customiso/
@@ -63,23 +67,26 @@ function init_mount_unpack {
         echo ""
         echo "[Replacing HOOKS]"
         $chroot_cmd sed -ibak 's/^HOOKS=.*$/HOOKS=\"base udev memdisk archiso_shutdown archiso archiso_loop_mnt archiso_pxe_common archiso_pxe_nbd archiso_pxe_http archiso_pxe_nfs archiso_kms block pcmcia filesystems keyboard\"/' /etc/mkinitcpio.conf       
-        $chroot_cmd mkinitcpio -p linux
-        $chroot_cmd "LANG=C pacman -Sl | awk '/\[installed\]$/ {print $1 \"/\" $2 \"-\" $3}' > /pkglist.txt;"
-        $chroot_cmd pacman -Scc --noconfirm
-
-        sleep 1
-        echo ""
-        echo "[Copying over boot images]"
-    
-        sudo cp $chroot/boot/vmlinuz-linux $customiso/arch/x86_64/vmlinuz
-        sudo cp $chroot/boot/initramfs-linux.img $customiso/arch/x86_64/archiso.img
-        sudo mv $chroot/pkglist.txt $customiso/arch/pkglist.x86_64.txt
-
-        sleep 1
-        echo ""
+        #$chroot_cmd "LANG=C pacman -Sl | awk '/\[installed\]$/ {print $1 \"/\" $2 \"-\" $3}' > /pkglist.txt;"
     else
         echo "[Already populated]"
     fi
+}
+
+
+function updateBootOpts {
+    $chroot_cmd mkinitcpio -p linux
+    $chroot_cmd pacman -Scc --noconfirm
+
+    sleep 1
+    echo ""
+    echo "[Copying over boot images]"
+
+    sudo cp $chroot/boot/vmlinuz-linux $customiso/arch/x86_64/vmlinuz
+    sudo cp $chroot/boot/initramfs-linux.img $customiso/arch/x86_64/archiso.img
+
+    sleep 1
+    echo ""
 }
 
 
@@ -281,23 +288,25 @@ function update {
     install_packages
     install_boot_opts
     set_starts
-    updateSquash lz4
+    updateBootOpts    # update twice
+    updateSquash lzo
     createISO
 }
 
 ## Main order ##
-function main {
+function install {
     download_if_empty
     init_mount_unpack
+    updateBootOpts
     install_packages
     copy_static_files
     set_permissions
     set_starts
     install_boot_opts
+    updateBootOpts    # update twice
     updateSquash lz4
     createISO
 }
 
 
-#main
-update
+$command
