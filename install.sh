@@ -1,5 +1,8 @@
 #!/bin/bash
 #
+
+trap "kill 0" SIGINT  # kill all subprocesses
+
 customiso=./customiso2/
 chroot=$customiso/arch/x86_64/squashfs-root/
 vanilla_iso=./arch*.iso
@@ -14,7 +17,7 @@ function download_if_empty {
     if ! [ -e $vanilla_iso ]; then   
         if ! [ -e $chroot/etc/mkinitcpio.conf ] ; then
             # manual download till I can get the globbing to work
-            links "http://ftp.uni-hannover.de/archlinux/iso/latest/"
+            wget http://mirror.23media.de/archlinux/iso/latest/archlinux-2017.06.01-x86_64.iso
             vanilla_iso=./*.iso
         fi
     fi
@@ -94,7 +97,7 @@ function updateSquash {
 function copy_static_files {
     echo ""
     echo "[Updating Static Files]"
-    exit 0 # TODO: fix links so that hsap pipeline files are resolved, but not FASTA within it
+    #exit 0 # TODO: fix links so that hsap pipeline files are resolved, but not FASTA within it
 	# maybe by specificing that the resolve_links.cmd only works 1 directory deep.
     static_dir=static_confs/
 
@@ -104,15 +107,19 @@ function copy_static_files {
     #resolve_links.cmd
     echo "[Resolving symlinks for stated directories]"
     for dir in `find $static_dir -name resolve_links.cmd -exec dirname {} \;`; do
+        #echo "$dir"
+        #continue
         # Remove symlinks (if any)
         nodd=$chroot/`echo $dir | sed "s|$static_dir||"`
         echo " - Cleaning $nodd of symlinks"
-        sudo find $nodd/ -type l -exec rm {} \;
+        symedfiles=`sudo find $nodd/ -maxdepth 1  -type l`
 
         echo " - Copying over real files"
-        sudo cp -vunprL $dir $nodd
-
-    done 2>&1
+        for file in $symedfiles; do
+            actualpath=$(readlink -f $file)
+            rsync -avP $actualpath $nodd/
+        done
+    done
 }
 
 function set_starts {
@@ -197,6 +204,7 @@ function createISO {
 	 -no-emul-boot -boot-load-size 4 -boot-info-table -isohybrid-mbr\
 	 ./isolinux/isohdpfx.bin -output $output_iso $customiso
 }
+
 
 
 
