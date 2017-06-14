@@ -3,13 +3,13 @@
 
 trap "kill 0" SIGINT  # kill all subprocesses
 
-customiso=./customiso2/
+customiso=./customiso/
 chroot=$customiso/arch/x86_64/squashfs-root/
 vanilla_iso=./arch*.iso
 
 chroot_cmd="sudo arch-chroot $chroot"
 
-iso_label=201706  # don't change this
+iso_label=OVAS_201706  # don't change this
 
 
 function download_if_empty {
@@ -84,26 +84,42 @@ function init_mount_unpack {
 
 
 function updateSquash {
+    algo=${1:xz}
+
+    backup_root=./backup_root
+
+    #if ! [ -e $customiso/arch/x86_64/squashfs-root/ ];then
+    #    echo " - squashfs-root does not exist"
+    #    if [ -e $backup_root ]; then
+    #        echo " - Moving backup into place"
+    #        sudo mv -v $backup_root $customiso/arch/x86_64/squashfs-root/
+    #    else
+    #        echo " - Nothing to squash, terminating"
+    #        exit -1
+    #    fi
+    #fi
+    
     echo ""
-    echo "[Updating Squash image]"
-    cd $customiso/arch/x86_64/ 
-    sudo rm airootfs.sfs 2>/dev/null
-    sudo mksquashfs squashfs-root airootfs.sfs
+    echo "[Updating Squash image ($algo)]"
+    cd $customiso/arch/x86_64/
+   
+    sudo rm airootfs.sfs
+    sudo mksquashfs squashfs-root airootfs.sfs -comp $algo
+    sudo sh -c "md5sum airootfs.sfs > airootfs.md5"
+
     cd -
     echo ""
 }
 
 
+
 function copy_static_files {
     echo ""
     echo "[Updating Static Files]"
-    #exit 0 # TODO: fix links so that hsap pipeline files are resolved, but not FASTA within it
-	# maybe by specificing that the resolve_links.cmd only works 1 directory deep.
     static_dir=static_confs/
 
     sudo rsync -av $static_dir/* $chroot
     
-
     #resolve_links.cmd
     echo "[Resolving symlinks for stated directories]"
     for dir in `find $static_dir -name resolve_links.cmd -exec dirname {} \;`; do
@@ -125,8 +141,12 @@ function copy_static_files {
 function set_starts {
     echo ""
     echo "[Setting systemctl starts]"
-    $chroot_cmd systemctl enable sshd
+    #$chroot_cmd systemctl enable sshd         # enable internally for debugging
     $chroot_cmd systemctl enable httpd
+
+    $chroot_cmd systemctl disable dhcpcd       # slow, enable on demand
+    $chroot_cmd systemctl disable pacman-init  # not needed for one time use
+    
 }
 
 function set_permissions {
@@ -158,10 +178,13 @@ function set_permissions {
 }
 
 function install_packages {
-    pack_list=package_list.txt
-    sudo cp -v ./assets/$pack_list $chroot/$pack_list
+    pack_list_in=package_list_install.txt
+    #pack_list_rm=package_list_remove.txt
+    sudo cp -v ./assets/$pack_list_in $chroot/$pack_list_in
+    #sudo cp -v ./assets/$pack_list_rm $chroot/$pack_list_rm
 
-    $chroot_cmd sh -c "cat $pack_list | pacman -S --needed --noconfirm -"
+    $chroot_cmd sh -c "cat $pack_list_in | pacman -S --needed --noconfirm -"
+    #$chroot_cmd sh -c "cat $pack_list_rm | pacman -R --noconfirm -"
 }
 
 
@@ -187,33 +210,85 @@ ENDTEXT
 MENU LABEL Run OVAS
 LINUX boot/x86_64/vmlinuz
 INITRD boot/intel_ucode.img,boot/x86_64/archiso.img
-APPEND archisobasedir=arch archisolabel=ARCH_${iso_label}
+APPEND archisobasedir=arch archisolabel=${iso_label}
 
-INCLUDE boot/syslinux/archiso_tail.cfg\" > $syslx_root/archiso_sys.cfg"
+LABEL poweroff
+MENU LABEL Power Off
+COM32 boot/syslinux/poweroff.c32
+
+\" > $syslx_root/archiso_sys.cfg"
    
 }
 
 
 function createISO {
+    back=./chroot_backup
+    sudo mv -v $chroot $back   #  temporarily move chroot out of custom
+
+    echo "[Creating ISO]"
     mkdir out
-    output_iso=out/"ovas-`date +%Y%m%d`"
+    output_iso=out/ovas-`date +%Y%m%d`.2.iso
+    [ -e $output_iso ] && rm $output_iso
+
+    [ "$output_iso" = "" ] && echo "No iso filename given!" && exit -1
     
-    sudo xorriso\
-	 -as mkisofs -iso-level 3 -full-iso9660-filenames -volid "${iso_label}"\
-	 -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat\
-	 -no-emul-boot -boot-load-size 4 -boot-info-table -isohybrid-mbr\
-	 ./isolinux/isohdpfx.bin -output $output_iso $customiso
+    make_xoriso $output_iso # OR
+    #make_geniso $output_iso
+
+    # move chroot back
+    sleep 1
+    sudo mv -v $back $chroot
 }
 
 
 
+function make_xoriso {
+    output_iso=$1
+    isolinux=`readlink -f $customiso/isolinux`
+    
+    sudo xorriso\
+	 -as mkisofs -iso-level 3 -full-iso9660-filenames\
+         -volid "${iso_label}"\
+	 -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat\
+	 -no-emul-boot -boot-load-size 4 -boot-info-table\
+         -isohybrid-mbr $isolinux/isohdpfx.bin\
+         -output $output_iso $customiso
+}
 
-download_if_empty
-init_mount_unpack
-install_packages
-copy_static_files
-set_permissions
-set_starts
-install_boot_opts
-updateSquash
-createISO
+function make_geniso {
+    output_iso=$1
+
+    sudo genisoimage -l -r -J -V "${iso_label}"\
+         -b isolinux/isolinux.bin\
+         -no-emul-boot -boot-load-size 4 -boot-info-table\
+         -c isolinux/boot.cat -o $output_iso $customiso
+
+    echo " - Making USB bootable"
+    sudo isohybrid $output_iso
+}
+
+
+### main functions ###
+function update {
+    install_packages
+    install_boot_opts
+    set_starts
+    updateSquash lz4
+    createISO
+}
+
+## Main order ##
+function main {
+    download_if_empty
+    init_mount_unpack
+    install_packages
+    copy_static_files
+    set_permissions
+    set_starts
+    install_boot_opts
+    updateSquash lz4
+    createISO
+}
+
+
+main
