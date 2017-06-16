@@ -1,6 +1,5 @@
 #!/bin/bash
 #
-
 command=$1
 [ "$command" = "" ] && echo -e "\n\t`basename $0` (install|update)\n" && exit -1
 
@@ -31,11 +30,12 @@ function download_if_empty {
 function init_mount_unpack {
 
     echo ""
-    if [ "`mount | grep /mnt/archiso | wc -l`" = "0" ]; then
+    mntpnt=/mnt/archiso2
+    sudo umount $vanilla_iso
+    if [ "`mount | grep $mntpnt | wc -l`" = "0" ]; then
         echo "[Mounting iso]"
-        sudo mkdir /mnt/archiso
-        sudo mount -t iso9660 -o loop $vanilla_iso /mnt/archiso
-        
+        sudo mkdir $mntpnt 2>/dev/null
+        sudo mount -t iso9660 -o loop $vanilla_iso $mntpnt || (echo "Unable to mount.." && exit -1)
     else
         echo "[Already mounted]"
     fi
@@ -46,7 +46,7 @@ function init_mount_unpack {
     if ! [ -e $chroot/etc/mkinitcpio.conf ]; then
         echo ""
         echo "[Copying contents]"        
-        sudo cp -unpr /mnt/archiso $customiso
+        sudo cp -unpr $mntpnt $customiso || (echo "Unable to copy..." && exit -1)
         sleep 1
 
         echo ""
@@ -66,7 +66,7 @@ function init_mount_unpack {
         sleep 1
         echo ""
         echo "[Replacing HOOKS]"
-        $chroot_cmd sed -ibak 's/^HOOKS=.*$/HOOKS=\"base udev memdisk archiso_shutdown archiso archiso_loop_mnt archiso_pxe_common archiso_pxe_nbd archiso_pxe_http archiso_pxe_nfs archiso_kms block pcmcia filesystems keyboard\"/' /etc/mkinitcpio.conf       
+        $chroot_cmd sed -ibak 's/^HOOKS=.*$/HOOKS=\"base memdisk archiso_shutdown archiso archiso_loop_mnt archiso_pxe_common archiso_pxe_nbd archiso_pxe_http archiso_pxe_nfs archiso_kms block pcmcia filesystems keyboard\"/' /etc/mkinitcpio.conf       
         #$chroot_cmd "LANG=C pacman -Sl | awk '/\[installed\]$/ {print $1 \"/\" $2 \"-\" $3}' > /pkglist.txt;"
     else
         echo "[Already populated]"
@@ -74,7 +74,19 @@ function init_mount_unpack {
 }
 
 
-function updateBootOpts {
+
+## BOOT and kernel functions ####
+function __updateEFI {
+    echo "[ Updating EFI ]"
+    sudo mkdir mnt
+    sudo mount -t vfat -o loop $customiso/EFI/archiso/efiboot.img mnt
+    sudo cp -v $customiso/arch/boot/x86_64/vmlinuz mnt/EFI/archiso/vmlinuz.efi
+    sudo cp -v $customiso/arch/boot/x86_64/archiso.img mnt/EFI/archiso/archiso.img
+}
+
+
+
+function _updateBootOpts {
     $chroot_cmd mkinitcpio -p linux
     $chroot_cmd pacman -Scc --noconfirm
 
@@ -87,7 +99,43 @@ function updateBootOpts {
 
     sleep 1
     echo ""
+    __updateEFI
 }
+
+function install_boot_opts {
+
+    syslx_root=$customiso/arch/boot/syslinux
+    
+    echo "[Configuring Bootloader]"
+    echo " - Setting splash"
+    convert assets/splash.xcf -flatten /tmp/splash.png
+    sudo cp -v /tmp/splash.png $syslx_root/
+    
+    echo " - Setting menu text"
+    sudo sed -i 's/MENU TITLE .*/MENU TITLE Welcome to the OVAS pipeline/' $syslx_root/archiso_head.cfg
+    sudo sh -c "echo \"\
+INCLUDE boot/syslinux/archiso_head.cfg
+
+LABEL arch64
+TEXT HELP
+Boots the OVAS live medium.
+Provides a self-contained environment to perform variant analysis.
+ENDTEXT
+MENU LABEL Run OVAS
+LINUX boot/x86_64/vmlinuz
+INITRD boot/intel_ucode.img,boot/x86_64/archiso.img
+APPEND archisobasedir=arch archisolabel=${iso_label} cow_spacesize=10G
+
+LABEL poweroff
+MENU LABEL Power Off
+COM32 boot/syslinux/poweroff.c32
+
+\" > $syslx_root/archiso_sys.cfg"
+
+    _updateBootOpts
+}
+
+
 
 
 function updateSquash {
@@ -203,46 +251,13 @@ function install_packages {
 }
 
 
-function install_boot_opts {
-
-    syslx_root=$customiso/arch/boot/syslinux
-    
-    echo "[Configuring Bootloader]"
-    echo " - Setting splash"
-    convert assets/splash.xcf -flatten /tmp/splash.png
-    sudo cp -v /tmp/splash.png $syslx_root/
-    
-    echo " - Setting menu text"
-    sudo sed -i 's/MENU TITLE .*/MENU TITLE Welcome to the OVAS pipeline/' $syslx_root/archiso_head.cfg
-    sudo sh -c "echo \"\
-INCLUDE boot/syslinux/archiso_head.cfg
-
-LABEL arch64
-TEXT HELP
-Boots the OVAS live medium.
-Provides a self-contained environment to perform variant analysis.
-ENDTEXT
-MENU LABEL Run OVAS
-LINUX boot/x86_64/vmlinuz
-INITRD boot/intel_ucode.img,boot/x86_64/archiso.img
-APPEND archisobasedir=arch archisolabel=${iso_label} cow_spacesize=10G
-
-LABEL poweroff
-MENU LABEL Power Off
-COM32 boot/syslinux/poweroff.c32
-
-\" > $syslx_root/archiso_sys.cfg"
-   
-}
-
-
 function createISO {
     back=./chroot_backup
     sudo mv -v $chroot $back   #  temporarily move chroot out of custom
 
     echo "[Creating ISO]"
     mkdir out
-    output_iso=out/ovas-`date +%Y%m%d`.2.iso
+    output_iso=out/ovas-`date +%Y%m%d-%H%M`.iso
     [ -e $output_iso ] && rm $output_iso
 
     [ "$output_iso" = "" ] && echo "No iso filename given!" && exit -1
@@ -253,6 +268,7 @@ function createISO {
     # move chroot back
     sleep 1
     sudo mv -v $back $chroot
+    ls -lh out/*
 }
 
 
@@ -267,6 +283,9 @@ function make_xoriso {
 	 -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat\
 	 -no-emul-boot -boot-load-size 4 -boot-info-table\
          -isohybrid-mbr $isolinux/isohdpfx.bin\
+         -eltorito-alt-boot \
+         -e EFI/archiso/efiboot.img \
+         -no-emul-boot -isohybrid-gpt-basdat \
          -output $output_iso $customiso
 }
 
@@ -282,31 +301,49 @@ function make_geniso {
     sudo isohybrid $output_iso
 }
 
+function writeLatestToUSB {
+    last_usb_dev=`dmesg | tail | grep 'removable' | sed -r 's|\[[^[]+\[([a-z]+)\].*|/dev/\1|'`
+    last_iso=`ls ./out/* -t | head -1 `
+
+    [ "$last_usb_dev" = "" ] && echo "Could not determine USB" && exit -1
+    [ "$last_iso" = "" ] && echo "Could not determine last ISO" && exit -1
+
+    echo "Writing $last_iso -> $last_usb_dev, starting in 10 seconds"
+    sleep 10
+    
+    sudo dd if=$last_iso of=$last_usb_dev status=progress
+}
+
 
 ### main functions ###
 function update {
     install_packages
     install_boot_opts
     set_starts
-    updateBootOpts    # update twice
-    updateSquash lzo
+    updateSquash lz4
     createISO
 }
+
+function quickupdate {
+    install_boot_opts
+    set_starts
+    updateSquash lz4
+    createISO
+}
+
 
 ## Main order ##
 function install {
     download_if_empty
     init_mount_unpack
-    updateBootOpts
     install_packages
     copy_static_files
     set_permissions
     set_starts
     install_boot_opts
-    updateBootOpts    # update twice
     updateSquash lz4
     createISO
+    #writeLatestToUSB
 }
-
 
 $command
