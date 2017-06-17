@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-command=$1
+command=$*
 [ "$command" = "" ] && echo -e "\n\t`basename $0` (install|update)\n" && exit -1
 
 
@@ -209,10 +209,10 @@ function set_starts {
     $chroot_cmd systemctl enable sshd         # enable internally for debugging
     $chroot_cmd systemctl enable httpd
 
-    $chroot_cmd systemctl enable  dhcpcd       # slow, enable on demand
-    $chroot_cmd systemctl disable pacman-init  # not needed for one time use
-    
+    $chroot_cmd systemctl enable  dhcpcd       # slow, enable on demand -- httpd calls it, might as well
+    $chroot_cmd systemctl disable pacman-init  # not needed for one time use   
 }
+
 
 function set_permissions {
     echo "[Setting Accounts and Permissions]"
@@ -348,4 +348,5 @@ function install {
     #writeLatestToUSB
 }
 
-$command
+comms=`echo $command | sed 's/\s/;/g'`
+eval $comms
