@@ -12,7 +12,7 @@ vanilla_iso=./arch*.iso
 
 chroot_cmd="sudo arch-chroot $chroot"
 
-iso_label=OVAS_201706  # don't change this
+iso_label=ARCH_201706  # don't change this
 
 
 function download_if_empty {
@@ -62,11 +62,15 @@ function init_mount_unpack {
 
         $chroot_cmd pacman-key --init
         $chroot_cmd pacman-key --populate archlinux
-        $chroot_cmd pacman -Syu --force archiso linux --noconfirm
-        sleep 1
-        echo ""
-        echo "[Replacing HOOKS]"
-        $chroot_cmd sed -ibak 's/^HOOKS=.*$/HOOKS=\"base memdisk archiso_shutdown archiso archiso_loop_mnt archiso_pxe_common archiso_pxe_nbd archiso_pxe_http archiso_pxe_nfs archiso_kms block pcmcia filesystems keyboard\"/' /etc/mkinitcpio.conf       
+	sleep 1
+
+	#
+	# CAUTION: Updating the kernel leads to mouse and keyboard not working. Ignoring for now.
+	#
+        #$chroot_cmd pacman -Syu --force archiso linux --noconfirm
+        #echo ""
+        #echo "[Replacing HOOKS]"
+        #$chroot_cmd sed -ibak 's/^HOOKS=.*$/HOOKS=\"base memdisk archiso_shutdown archiso archiso_loop_mnt archiso_pxe_common archiso_pxe_nbd archiso_pxe_http archiso_pxe_nfs archiso_kms block pcmcia filesystems keyboard\"/' /etc/mkinitcpio.conf       
         #$chroot_cmd "LANG=C pacman -Sl | awk '/\[installed\]$/ {print $1 \"/\" $2 \"-\" $3}' > /pkglist.txt;"
     else
         echo "[Already populated]"
@@ -76,6 +80,9 @@ function init_mount_unpack {
 
 
 ## BOOT and kernel functions ####
+#
+# CAUTION: Updating the kernel leads to mouse and keyboard not working. Ignoring for now.
+#
 function __updateEFI {
     echo "[ Updating EFI ]"
     sudo mkdir mnt
@@ -87,8 +94,11 @@ function __updateEFI {
 
 
 function _updateBootOpts {
-    $chroot_cmd mkinitcpio -p linux
-    $chroot_cmd pacman -Scc --noconfirm
+    #
+    # CAUTION: Updating the kernel leads to mouse and keyboard not working. Ignoring for now.
+    #
+    #$chroot_cmd mkinitcpio -p linux
+    #$chroot_cmd pacman -Scc --noconfirm
 
     sleep 1
     echo ""
@@ -99,7 +109,7 @@ function _updateBootOpts {
 
     sleep 1
     echo ""
-    __updateEFI
+    #__updateEFI
 }
 
 function install_boot_opts {
@@ -233,21 +243,13 @@ function set_permissions {
 }
 
 function install_packages {
-    pack_list_in=package_list_install.txt
-    #pack_list_rm=package_list_remove.txt
-    #sudo cp -v ./assets/$pack_list_rm $chroot/$pack_list_rm
-    sudo cp -v ./assets/$pack_list_in $chroot/$pack_list_in
-    #xf86="`pacman -Ssq xf86`"
-    #xorg="`pacman -Ssq xorg`"
+    pack_list_in=./assets/install_lists/*.deps
 
-    #sudo sh -c "echo $xf86 $xorg >> $chroot/$pack_list_in"
-
-    $chroot_cmd sh -c "cat $pack_list_in | pacman -S --needed --noconfirm -"
-
-    
-    $chroot_cmd sh -c 'pacman -S --needed --noconfirm `pacman -Ssq xf86`'
-    $chroot_cmd sh -c 'pacman -S --needed --noconfirm `pacman -Ssq xorg`'
-    #$chroot_cmd sh -c "cat $pack_list_rm | pacman -R --noconfirm -"
+    for dep in $pack_list_in; do
+	base=`basename $dep`
+	sudo cp -v $dep $chroot/$base
+	$chroot_cmd sh -c "cat $base | pacman -Sy --needed --noconfirm -"
+    done
 }
 
 
@@ -283,10 +285,10 @@ function make_xoriso {
 	 -eltorito-boot isolinux/isolinux.bin -eltorito-catalog isolinux/boot.cat\
 	 -no-emul-boot -boot-load-size 4 -boot-info-table\
          -isohybrid-mbr $isolinux/isohdpfx.bin\
-         -eltorito-alt-boot \
-         -e EFI/archiso/efiboot.img \
-         -no-emul-boot -isohybrid-gpt-basdat \
          -output $output_iso $customiso
+
+    #-eltorito-alt-boot -e EFI/archiso/efiboot.img -no-emul-boot -isohybrid-gpt-basdat
+
 }
 
 function make_geniso {
